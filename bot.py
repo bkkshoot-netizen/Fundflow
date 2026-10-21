@@ -20,40 +20,46 @@ def scrape_and_send():
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
     
-    all_rows_data = []
+    raw_rows_data = []
     try:
         driver.get("https://www.set.or.th/th/market/statistics/investor-type")
         
-        # รอให้ตารางโหลดขึ้นมา
         WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.TAG_NAME, "table"))
         )
-        time.sleep(6) # รอให้ข้อมูลตัวเลขวิ่งครบ
+        time.sleep(6)
         
         tables = driver.find_elements(By.TAG_NAME, "table")
         print(f"พบตารางทั้งหมด {len(tables)} ตาราง")
         
-        # เลือกตารางที่สอง (Index ที่ 1) ซึ่งคือตาราง "มูลค่าการซื้อขายสุทธิ ตามกลุ่มนักลงทุน"
         if len(tables) >= 2:
             target_table = tables[1] 
             rows = target_table.find_elements(By.TAG_NAME, "tr")
             
             for row in rows:
-                # ดึงข้อมูลจากทุกเซลล์ในแถว (ทั้ง th และ td)
                 cells = row.find_elements(By.TAG_NAME, "th") + row.find_elements(By.TAG_NAME, "td")
                 row_values = [cell.text.strip() for cell in cells]
                 if row_values:
-                    all_rows_data.append(row_values)
+                    raw_rows_data.append(row_values)
                     
     finally:
         driver.quit()
 
-    if not all_rows_data:
+    if not raw_rows_data:
         raise Exception("ไม่สามารถดึงข้อมูลตารางสุทธิได้")
 
-    # ส่งข้อมูลไปยัง Google Apps Script Web App
+    # --- จัดการปรับจำนวนคอลัมน์ใน Python ให้เท่ากันทุกแถว ---
+    max_cols = max(len(row) for row in raw_rows_data)
+    normalized_data = []
+    for row in raw_rows_data:
+        # เติมช่องว่าง ("") ให้แถวที่สั้นกว่า มีความยาวเท่ากับแถวที่ยาวที่สุด
+        while len(row) < max_cols:
+            row.append("")
+        normalized_data.append(row)
+
+    # ส่งข้อมูลที่จัดระเบียบแล้วไปยัง Google Apps Script Web App
     web_app_url = os.environ["WEB_APP_URL"]
-    response = requests.post(web_app_url, json=all_rows_data)
+    response = requests.post(web_app_url, json=normalized_data)
     print("Response from Google Sheets:", response.text)
 
 if __name__ == "__main__":
