@@ -1,8 +1,8 @@
+import os
 import requests
 from playwright.sync_api import sync_playwright
 
 def scrape_and_send():
-    # 1. ใช้ Playwright ดึงข้อมูลตารางจากเว็บ SET
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
@@ -25,8 +25,8 @@ def scrape_and_send():
     if not rows_data:
         raise Exception("ไม่พบข้อมูลในตาราง")
 
-    # 2. ส่งข้อมูลที่ดึงได้ไปยัง Google Apps Script Web App
-    web_app_url = https://script.google.com/macros/s/AKfycbyL7Ep-UJKO1OTfHwP5xtm0wyLvZYoImxVt2SJPtML8d07RkQsQ0PolKsUcxl-NSwiO2g/exec
+    # ดึง URL จาก GitHub Secrets ที่ตั้งค่าไว้ (ห้ามใส่ข้อความมั่วซ้ำซ้อน)
+    web_app_url = os.environ["WEB_APP_URL"]
     
     response = requests.post(web_app_url, json=rows_data)
     print("Response from Google Sheets:", response.text)
