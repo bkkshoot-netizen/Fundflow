@@ -1,58 +1,71 @@
 import os
 import time
 import requests
-from playwright.sync_api import sync_playwright
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 
-def scrape_and_sign():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
+def scrape_and_send():
+    # ตั้งค่าให้ Chrome รันแบบ Headless (ไม่แสดงหน้าจอ) บน GitHub Actions
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    
+    # เปิดใช้งาน WebDriver
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
+    all_rows_data = []
+    try:
         # ไปที่เว็บไซต์ SET
-        page.goto("https://www.set.or.th/th/market/statistics/investor-type", timeout=60000, wait_until="networkidle")
+        driver.get("https://www.set.or.th/th/market/statistics/investor-type")
         
-        # รอให้ตารางและข้อมูลภายในโหลดขึ้นมาจริงๆ (รออย่างน้อย 6 วินาที)
-        page.wait_for_timeout(60000) # เผื่อเวลาให้ JavaScript ทำงานเสร็จ
+        # รอจนกว่าตารางจะปรากฏขึ้นมาในหน้าเว็บ (รอสูงสุด 30 วินาที)
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.TAG_NAME, "table"))
+        )
+        
+        # หน่วงเวลาเพิ่มอีกสักนิดเพื่อให้ข้อมูลในตารางโหลดครบสมบูรณ์
+        time.sleep(5)
         
         # ค้นหาตารางทั้งหมดในหน้าเว็บ
-        tables = page.locator("table")
-        all_rows_data = []
+        tables = driver.find_elements(By.TAG_NAME, "table")
+        print(f"พบตารางทั้งหมด {len(tables)} ตาราง")
         
-        print(f"พบตารางทั้งหมด {tables.count()} ตาราง")
-        
-        for i in range(tables.count()):
-            table = tables.nth(i)
-            # ดึงทุกแถว (ทั้ง tr, th, td) ในตารางนี้
-            tr_elements = table.locator("tr")
-            tr_count = tr_elements.count()
-            
-            if tr_count > 1: # เอาเฉพาะตารางที่มีมากกว่า 1 แถว (มีข้อมูล)
-                table_has_data = False
+        for table in tables:
+            text_content = table.text
+            # เลือกเฉพาะตารางที่มีข้อมูลกลุ่มนักลงทุน
+            if "นักลงทุน" in text_content or "สถาบันในประเทศ" in text_content:
+                rows = table.find_elements(By.TAG_NAME, "tr")
                 temp_table_rows = []
                 
-                for j in range(tr_count):
-                    tr = tr_elements.nth(j)
-                    cells = tr.locator("th, td")
-                    row_values = [cells.nth(k).inner_text().strip() for k in range(cells.count())]
-                    
+                for row in rows:
+                    cells = row.find_elements(By.TAG_NAME, "th") + row.find_elements(By.TAG_NAME, "td")
+                    row_values = [cell.text.strip() for cell in cells]
                     if row_values:
                         temp_table_rows.append(row_values)
-                        table_has_data = True
                 
-                if table_has_data:
+                if temp_table_rows:
                     all_rows_data.extend(temp_table_rows)
-                    # เว้นบรรทัดแยกระหว่างตาราง
-                    all_rows_data.append([]) 
-
-        browser.close()
+                    all_rows_data.append([]) # เว้นบรรทัดแยกระหว่างตาราง
+                    
+    finally:
+        driver.quit()
 
     if not all_rows_data:
-        raise Exception("ไม่สามารถดึงข้อมูลตารางจากหน้าเว็บได้")
+        raise Exception("ไม่สามารถดึงข้อมูลตารางด้วย Selenium ได้")
 
-    # ส่งข้อมูลไปยัง Google Apps Script Web App
+    # ส่งข้อมูลไปยัง Google Apps Script Web App ที่ตั้งค่าไว้
     web_app_url = os.environ["WEB_APP_URL"]
     response = requests.post(web_app_url, json=all_rows_data)
     print("Response from Google Sheets:", response.text)
 
 if __name__ == "__main__":
-    scrape_and_sign()
+    scrape_and_send()
