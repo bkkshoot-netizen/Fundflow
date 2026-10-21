@@ -32,10 +32,19 @@ def scrape_and_send():
         tables = driver.find_elements(By.TAG_NAME, "table")
         print(f"พบตารางทั้งหมด {len(tables)} ตาราง")
         
-        if len(tables) >= 2:
-            target_table = tables[1] 
-            rows = target_table.find_elements(By.TAG_NAME, "tr")
+        # ค้นหาตารางล่างโดยเช็กจากข้อความหัวตารางว่ามีคำว่า "สุทธิ" อยู่ด้วย
+        target_table = None
+        for table in tables:
+            if "สุทธิ" in table.text:
+                target_table = table
+                break
+        
+        # ถ้าหาไม่เจอ ให้บังคับเลือกตารางที่ 2 (index 1) แทน
+        if not target_table and len(tables) >= 2:
+            target_table = tables[1]
             
+        if target_table:
+            rows = target_table.find_elements(By.TAG_NAME, "tr")
             for row in rows:
                 cells = row.find_elements(By.TAG_NAME, "th") + row.find_elements(By.TAG_NAME, "td")
                 row_values = [cell.text.strip() for cell in cells]
@@ -46,18 +55,17 @@ def scrape_and_send():
         driver.quit()
 
     if not raw_rows_data:
-        raise Exception("ไม่สามารถดึงข้อมูลตารางสุทธิได้")
+        raise Exception("ไม่สามารถดึงข้อมูลตารางสุทธิ (ตารางล่าง) ได้")
 
-    # --- จัดการปรับจำนวนคอลัมน์ใน Python ให้เท่ากันทุกแถว ---
+    # จัดระเบียบจำนวนคอลัมน์ให้เท่ากันทุกแถว ป้องกัน Error ขนาดไม่ตรงกัน
     max_cols = max(len(row) for row in raw_rows_data)
     normalized_data = []
     for row in raw_rows_data:
-        # เติมช่องว่าง ("") ให้แถวที่สั้นกว่า มีความยาวเท่ากับแถวที่ยาวที่สุด
         while len(row) < max_cols:
             row.append("")
         normalized_data.append(row)
 
-    # ส่งข้อมูลที่จัดระเบียบแล้วไปยัง Google Apps Script Web App
+    # ส่งข้อมูลเฉพาะตารางล่างไปยัง Apps Script Web App
     web_app_url = os.environ["WEB_APP_URL"]
     response = requests.post(web_app_url, json=normalized_data)
     print("Response from Google Sheets:", response.text)
