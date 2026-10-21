@@ -1,43 +1,58 @@
 import os
+import time
 import requests
 from playwright.sync_api import sync_playwright
 
-def scrape_and_send():
+def scrape_and_sign():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
+        
+        # ไปที่เว็บไซต์ SET
         page.goto("https://www.set.or.th/th/market/statistics/investor-type", timeout=60000, wait_until="networkidle")
-        page.wait_for_timeout(5000) 
         
-        all_rows_data = []
+        # รอให้ตารางและข้อมูลภายในโหลดขึ้นมาจริงๆ (รออย่างน้อย 6 วินาที)
+        page.wait_for_timeout(60000) # เผื่อเวลาให้ JavaScript ทำงานเสร็จ
+        
+        # ค้นหาตารางทั้งหมดในหน้าเว็บ
         tables = page.locator("table")
+        all_rows_data = []
         
-        # วนลูปดึงข้อมูลจากทุกตารางที่มีในหน้าเว็บ
+        print(f"พบตารางทั้งหมด {tables.count()} ตาราง")
+        
         for i in range(tables.count()):
             table = tables.nth(i)
-            text_content = table.inner_text()
+            # ดึงทุกแถว (ทั้ง tr, th, td) ในตารางนี้
+            tr_elements = table.locator("tr")
+            tr_count = tr_elements.count()
             
-            # กรองเอาเฉพาะตารางที่เกี่ยวกับกลุ่มนักลงทุน
-            if "นักลงทุน" in text_content or "สถาบันในประเทศ" in text_content:
-                tr_elements = table.locator("tr")
-                for j in range(tr_elements.count()):
-                    tds = tr_elements.nth(j).locator("th, td")
-                    row_values = [tds.nth(k).inner_text().strip() for k in range(tds.count())]
+            if tr_count > 1: # เอาเฉพาะตารางที่มีมากกว่า 1 แถว (มีข้อมูล)
+                table_has_data = False
+                temp_table_rows = []
+                
+                for j in range(tr_count):
+                    tr = tr_elements.nth(j)
+                    cells = tr.locator("th, td")
+                    row_values = [cells.nth(k).inner_text().strip() for k in range(cells.count())]
+                    
                     if row_values:
-                        all_rows_data.append(row_values)
+                        temp_table_rows.append(row_values)
+                        table_has_data = True
                 
-                # เว้น 1 แถวระหว่างตาราง เพื่อให้ Google Sheets แยกตารางสวยงาม
-                all_rows_data.append([]) 
-                
+                if table_has_data:
+                    all_rows_data.extend(temp_table_rows)
+                    # เว้นบรรทัดแยกระหว่างตาราง
+                    all_rows_data.append([]) 
+
         browser.close()
 
     if not all_rows_data:
-        raise Exception("ไม่พบข้อมูลตารางในเว็บไซต์")
+        raise Exception("ไม่สามารถดึงข้อมูลตารางจากหน้าเว็บได้")
 
-    # ส่งข้อมูลทั้งหมดไปยัง Apps Script Web App
+    # ส่งข้อมูลไปยัง Google Apps Script Web App
     web_app_url = os.environ["WEB_APP_URL"]
     response = requests.post(web_app_url, json=all_rows_data)
     print("Response from Google Sheets:", response.text)
 
 if __name__ == "__main__":
-    scrape_and_send()
+    scrape_and_sign()
